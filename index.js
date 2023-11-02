@@ -1,58 +1,76 @@
 const request = require('request');
 const cheerio = require('cheerio');
 const moment = require('moment');
+const Router = require('koa-router');
 const fs = require('fs')
 const url = 'https://zhibo8.com/schedule/finish_more.htm'
-request(url, async function (error, response, body) {
-  // 如果请求成功且状态码为 200
-  if (!error && response.statusCode == 200) {
-    // 使用 cheerio 加载 HTML 文档
-    const $ = cheerio.load(body);
-    // 存储获取到的数据
-    const totalData = []
-    
-    await new Promise(async (resolve, reject) => {
-      const lis = $('.record ._content').find('ul').find('li')
-      const today = moment().format('YYYY-MM-DD');
-      for(let i = 0; i< lis.length; i++) {
-        const index = i;
-        const value = lis[i];
-        const id = value.attribs.id.replace('saishi', '')
-        const dataTime = value.attribs['data-time'];
-        const league = $(value).find('._league').text()
-        // https://dc4pc.qiumibao.com/dc/matchs/data/2023-11-01/player_1230900.htm?get=0.5359058104545513 球员数据
-        // https://dc4pc.qiumibao.com/dc/matchs/data/2023-11-01/score_team_1230900.htm?get=0.49059831174568114 球队数据
-        if(dataTime.indexOf(moment().format('YYYY-MM-DD')) != -1 ) {
-          if(league.indexOf('NBA') != -1 || league.indexOf('nba') != -1) {
-            const players = await new Promise((resolve, reject)=> {
-              request(`https://dc4pc.qiumibao.com/dc/matchs/data/${today}/player_${id}.htm`, (error, response, body) => {
-                if(body) {
-                  try {
-                    resolve(JSON.parse(body))
-                  } catch (error) {
+const totalData = []
+const Koa = require('koa');
+const app = new Koa();
+
+// app.use(async ctx => {
+//   await getData();
+//   ctx.body = totalData
+// });
+const router = new Router();
+router.get('/api/data', async ctx => {
+  await getData();
+  ctx.body = JSON.stringify(totalData,null, '\t')
+})
+app.use(router.routes());
+app.use(router.allowedMethods({}));
+app.listen(80);
+async function getData () {
+  return request(url, async function (error, response, body) {
+    // 如果请求成功且状态码为 200
+    if (!error && response.statusCode == 200) {
+      // 使用 cheerio 加载 HTML 文档
+      const $ = cheerio.load(body);
+      // 存储获取到的数据
+      
+      await new Promise(async (resolve, reject) => {
+        const lis = $('.record ._content').find('ul').find('li')
+        const today = moment().format('YYYY-MM-DD');
+        for(let i = 0; i< lis.length; i++) {
+          const index = i;
+          const value = lis[i];
+          const id = value.attribs.id.replace('saishi', '')
+          const dataTime = value.attribs['data-time'];
+          const league = $(value).find('._league').text()
+          // https://dc4pc.qiumibao.com/dc/matchs/data/2023-11-01/player_1230900.htm?get=0.5359058104545513 球员数据
+          // https://dc4pc.qiumibao.com/dc/matchs/data/2023-11-01/score_team_1230900.htm?get=0.49059831174568114 球队数据
+          if(dataTime.indexOf(moment().format('YYYY-MM-DD')) != -1 ) {
+            if(league.indexOf('NBA') != -1 || league.indexOf('nba') != -1) {
+              const players = await new Promise((resolve, reject)=> {
+                request(`https://dc4pc.qiumibao.com/dc/matchs/data/${today}/player_${id}.htm`, (error, response, body) => {
+                  if(body) {
+                    try {
+                      resolve(JSON.parse(body))
+                    } catch (error) {
+                      resolve(null)
+                    }
+                    
+                  }
+                  else {
                     resolve(null)
                   }
-                  
-                }
-                else {
-                  resolve(null)
-                }
+                })
               })
-            })
-            if(players) {
-              const gameData = playerGather(players);
-              totalData.push(gameData)
+              if(players) {
+                const gameData = playerGather(players);
+                totalData.push(gameData)
+              }
             }
           }
+          if(index == lis.length - 1) {
+            resolve()
+          }
         }
-        if(index == lis.length - 1) {
-          resolve()
-        }
-      }
-    })
-    await writeFs(totalData)
-  }
-});
+      })
+      // await writeFs(totalData)
+    }
+  });
+}
 
 function writeFs(totalData){
   fs.writeFile('./data.json', JSON.stringify(totalData,null, '\t'), function (err, data) {
